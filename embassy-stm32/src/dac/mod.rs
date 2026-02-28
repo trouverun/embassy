@@ -140,6 +140,7 @@ pub struct DacChannel<'d, T: Instance, C: Channel, M: PeriMode> {
     phantom: PhantomData<&'d mut (T, C, M)>,
     #[allow(unused)]
     dma: Option<ChannelAndRequest<'d>>,
+    vref: f32,
 }
 
 /// DAC channel 1 type alias.
@@ -161,6 +162,7 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
         dma: Peri<'d, D>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         pin: Peri<'d, impl DacPin<T, C>>,
+        vref: f32,
     ) -> Self {
         pin.set_as_analog();
         Self::new_inner(
@@ -168,6 +170,7 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
             new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            vref,
         )
     }
 
@@ -186,8 +189,9 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        vref: f32,
     ) -> Self {
-        Self::new_inner(peri, new_dma!(dma, _irq), Mode::NormalInternalUnbuffered)
+        Self::new_inner(peri, new_dma!(dma, _irq), Mode::NormalInternalUnbuffered, vref)
     }
 
     /// Write `data` to this channel via DMA.
@@ -242,13 +246,14 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
     ///
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
-    pub fn new_blocking(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
+    pub fn new_blocking(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>, vref: f32) -> Self {
         pin.set_as_analog();
         Self::new_inner(
             peri,
             None,
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            vref,
         )
     }
 
@@ -263,8 +268,8 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal_blocking(peri: Peri<'d, T>) -> Self {
-        Self::new_inner(peri, None, Mode::NormalInternalUnbuffered)
+    pub fn new_internal_blocking(peri: Peri<'d, T>, vref: f32) -> Self {
+        Self::new_inner(peri, None, Mode::NormalInternalUnbuffered, vref)
     }
 }
 
@@ -273,11 +278,13 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
         _peri: Peri<'d, T>,
         dma: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
+        vref: f32,
     ) -> Self {
         rcc::enable_and_reset::<T>();
         let mut dac = Self {
             phantom: PhantomData,
             dma,
+            vref,
         };
         #[cfg(any(dac_v5, dac_v6, dac_v7))]
         dac.set_hfsel();
@@ -359,16 +366,24 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
         });
     }
 
-    /// Write a new value to this channel.
+    /// Write a new raw value to this channel.
     ///
     /// If triggering is not enabled, the new value is immediately output; otherwise,
     /// it will be output after the next trigger.
-    pub fn set(&mut self, value: Value) {
+    pub fn set_raw(&self, value: Value) {
         match value {
             Value::Bit8(v) => T::regs().dhr8r(C::IDX).write(|reg| reg.set_dhr(v)),
             Value::Bit12Left(v) => T::regs().dhr12l(C::IDX).write(|reg| reg.set_dhr(v)),
             Value::Bit12Right(v) => T::regs().dhr12r(C::IDX).write(|reg| reg.set_dhr(v)),
         }
+    }
+
+    /// Write a voltage to this channel, converted using the configured reference voltage.
+    ///
+    /// If triggering is not enabled, the new value is immediately output; otherwise,
+    /// it will be output after the next trigger.
+    pub fn set_voltage(&self, volts: f32) {
+        self.set_raw(Value::Bit12Right(((volts / self.vref) * 4095.0) as u16));
     }
 
     /// Read the current output value of the DAC.
@@ -450,6 +465,7 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        vref: f32,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -459,6 +475,7 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
             new_dma!(dma_ch2, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            vref,
         )
     }
     /// Create a new `Dac` instance with external output pins and unbuffered mode.
@@ -494,6 +511,7 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        vref: f32,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -503,6 +521,7 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
             new_dma!(dma_ch2, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalUnbuffered,
+            vref,
         )
     }
 
@@ -528,12 +547,14 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
+        vref: f32,
     ) -> Self {
         Self::new_inner(
             peri,
             new_dma!(dma_ch1, _irq),
             new_dma!(dma_ch2, _irq),
             Mode::NormalInternalUnbuffered,
+            vref,
         )
     }
 }
@@ -555,6 +576,7 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
         peri: Peri<'d, T>,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        vref: f32,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -564,6 +586,7 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
             None,
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            vref,
         )
     }
 
@@ -582,8 +605,8 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(peri: Peri<'d, T>) -> Self {
-        Self::new_inner(peri, None, None, Mode::NormalInternalUnbuffered)
+    pub fn new_internal_blocking(peri: Peri<'d, T>, vref: f32) -> Self {
+        Self::new_inner(peri, None, None, Mode::NormalInternalUnbuffered, vref)
     }
 }
 
@@ -593,12 +616,14 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
         dma_ch1: Option<ChannelAndRequest<'d>>,
         dma_ch2: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
+        vref: f32,
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
         let mut ch1 = DacCh1 {
             phantom: PhantomData,
             dma: dma_ch1,
+            vref,
         };
         #[cfg(any(dac_v5, dac_v6, dac_v7))]
         ch1.set_hfsel();
@@ -609,6 +634,7 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
         let mut ch2 = DacCh2 {
             phantom: PhantomData,
             dma: dma_ch2,
+            vref,
         };
         #[cfg(any(dac_v5, dac_v6, dac_v7))]
         ch2.set_hfsel();
@@ -636,11 +662,11 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
         &mut self.ch2
     }
 
-    /// Simultaneously update channels 1 and 2 with a new value.
+    /// Simultaneously update channels 1 and 2 with a new raw value.
     ///
     /// If triggering is not enabled, the new values are immediately output;
     /// otherwise, they will be output after the next trigger.
-    pub fn set(&mut self, values: DualValue) {
+    pub fn set_raw(&self, values: DualValue) {
         match values {
             DualValue::Bit8(v1, v2) => T::regs().dhr8rd().write(|reg| {
                 reg.set_dhr(0, v1);
@@ -655,6 +681,15 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
                 reg.set_dhr(1, v2);
             }),
         }
+    }
+
+    /// Simultaneously update channels 1 and 2 with voltages, converted using the configured reference voltage.
+    ///
+    /// If triggering is not enabled, the new values are immediately output;
+    /// otherwise, they will be output after the next trigger.
+    pub fn set_voltage(&self, ch1_volts: f32, ch2_volts: f32) {
+        let raw = |v: f32| ((v / self.ch1.vref) * 4095.0) as u16;
+        self.set_raw(DualValue::Bit12Right(raw(ch1_volts), raw(ch2_volts)));
     }
 }
 

@@ -42,7 +42,7 @@ pub enum OpAmpSpeed {
 ///
 /// This struct can also be used as an ADC input.
 pub struct OpAmpOutput<'d, T: Instance> {
-    _inner: &'d OpAmp<'d, T>,
+    _inner: OpAmp<'d, T>,
 }
 
 /// OpAmp internal outputs, wired directly to ADC inputs.
@@ -50,7 +50,7 @@ pub struct OpAmpOutput<'d, T: Instance> {
 /// This struct can be used as an ADC input.
 #[cfg(opamp_v5)]
 pub struct OpAmpInternalOutput<'d, T: Instance> {
-    _inner: &'d OpAmp<'d, T>,
+    _inner: OpAmp<'d, T>,
 }
 
 /// OpAmp driver.
@@ -84,10 +84,10 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// directly used as an ADC input. The opamp will be disabled when the
     /// [`OpAmpOutput`] is dropped.
     pub fn buffer_ext(
-        &mut self,
+        self,
         in_pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
         out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
-    ) -> OpAmpOutput<'_, T> {
+    ) -> OpAmpOutput<'d, T> {
         in_pin.set_as_analog();
         out_pin.set_as_analog();
 
@@ -118,11 +118,11 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// directly used as an ADC input. The opamp will be disabled when the
     /// [`OpAmpOutput`] is dropped.
     pub fn pga_ext(
-        &mut self,
+        self,
         in_pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
         out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
-    ) -> OpAmpOutput<'_, T> {
+    ) -> OpAmpOutput<'d, T> {
         in_pin.set_as_analog();
         out_pin.set_as_analog();
 
@@ -168,7 +168,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// directly used as an ADC input. The opamp will be disabled when the
     /// [`OpAmpOutput`] is dropped.
     #[cfg(opamp_v5)]
-    pub fn buffer_dac(&mut self, out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>) -> OpAmpOutput<'_, T> {
+    pub fn buffer_dac(self, out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>) -> OpAmpOutput<'d, T> {
         out_pin.set_as_analog();
 
         T::regs().csr().modify(|w| {
@@ -193,9 +193,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// The opamp output will be disabled when it is dropped.
     #[cfg(opamp_v5)]
     pub fn buffer_int(
-        &mut self,
+        self,
         pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
-    ) -> OpAmpInternalOutput<'_, T> {
+    ) -> OpAmpInternalOutput<'d, T> {
         pin.set_as_analog();
 
         T::regs().csr().modify(|w| {
@@ -219,10 +219,10 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// The opamp output will be disabled when it is dropped.
     #[cfg(opamp_v5)]
     pub fn pga_int(
-        &mut self,
+        self,
         pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
-    ) -> OpAmpInternalOutput<'_, T> {
+    ) -> OpAmpInternalOutput<'d, T> {
         pin.set_as_analog();
 
         let pga_gain = match gain {
@@ -256,9 +256,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// input. The opamp output will be disabled when it is dropped.
     #[cfg(opamp_v5)]
     pub fn standalone_dac_int(
-        &mut self,
+        self,
         m_pin: Peri<'_, impl InvertingPin<T> + crate::gpio::Pin>,
-    ) -> OpAmpInternalOutput<'_, T> {
+    ) -> OpAmpInternalOutput<'d, T> {
         m_pin.set_as_analog();
 
         T::regs().csr().modify(|w| {
@@ -284,10 +284,10 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// the [`OpAmpOutput`] is dropped.
     #[cfg(opamp_v5)]
     pub fn standalone_dac_ext(
-        &mut self,
+        self,
         m_pin: Peri<'_, impl InvertingPin<T> + crate::gpio::Pin>,
         out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
-    ) -> OpAmpOutput<'_, T> {
+    ) -> OpAmpOutput<'d, T> {
         m_pin.set_as_analog();
         out_pin.set_as_analog();
 
@@ -314,11 +314,11 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// the [`OpAmpOutput`] is dropped.
     #[cfg(opamp_v5)]
     pub fn standalone_ext(
-        &mut self,
+        self,
         p_pin: Peri<'d, impl NonInvertingPin<T> + crate::gpio::Pin>,
         m_pin: Peri<'d, impl InvertingPin<T> + crate::gpio::Pin>,
         out_pin: Peri<'d, impl OutputPin<T> + crate::gpio::Pin>,
-    ) -> OpAmpOutput<'_, T> {
+    ) -> OpAmpOutput<'d, T> {
         p_pin.set_as_analog();
         m_pin.set_as_analog();
         out_pin.set_as_analog();
@@ -345,10 +345,10 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// input. The opamp output will be disabled when it is dropped.
     #[cfg(opamp_v5)]
     pub fn standalone_int(
-        &mut self,
+        self,
         p_pin: Peri<'d, impl NonInvertingPin<T> + crate::gpio::Pin>,
         m_pin: Peri<'d, impl InvertingPin<T> + crate::gpio::Pin>,
-    ) -> OpAmpOutput<'_, T> {
+    ) -> OpAmpOutput<'d, T> {
         p_pin.set_as_analog();
         m_pin.set_as_analog();
 

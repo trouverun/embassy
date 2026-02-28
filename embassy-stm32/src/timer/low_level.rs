@@ -529,6 +529,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         regs.egr().write(|r| r.set_ug(true));
     }
 
+    /// Read update interrupt flag
+    pub fn get_update_interrupt(&self) -> bool {
+        self.regs_core().sr().read().uif()
+    }
+
     /// Clear update interrupt.
     ///
     /// Returns whether the update interrupt flag was set.

@@ -14,11 +14,16 @@ pub mod pwm_input;
 pub mod qei;
 pub mod ringbuffered;
 pub mod simple_pwm;
+pub mod hall;
+pub mod pwm;
+pub mod trigger_output;
 
 use crate::dma::word::Word;
 use crate::fmt::Debuggable;
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
+
+pub use self::low_level::{CountingMode};
 
 /// Timer channel.
 #[derive(Clone, Copy)]
