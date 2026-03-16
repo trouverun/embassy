@@ -1,7 +1,4 @@
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU16, AtomicU8, Ordering};
-
 use bit_field::BitField;
-
 use crate::gpio::{AfType, Pull};
 use crate::pac::gpio::Gpio;
 use crate::pac::timer::vals;
@@ -11,75 +8,6 @@ use crate::timer::{Ch1, Ch2, Ch3, Channel, GeneralInstance4Channel, TimerPin};
 use crate::Peri;
 
 
-/// 3-bit hall sensor pattern (ABC).
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
-pub enum HallPattern {
-    P000 = 0,
-    P001 = 1,
-    P010 = 2,
-    P011 = 3,
-    P100 = 4,
-    P101 = 5,
-    P110 = 6,
-    P111 = 7
-}
-
-/// Mapping from 6 hall sensor patterns to electrical angles in degrees.
-///
-/// Constructed from an array of 6 `(HallPattern, angle)` pairs covering
-/// all valid sensor states. Patterns not listed are treated as invalid at runtime.
-///
-/// ```ignore
-/// HallMap::new([
-///     (HallPattern::P101, 0),
-///     (HallPattern::P100, 60),
-///     (HallPattern::P110, 120),
-///     (HallPattern::P010, 180),
-///     (HallPattern::P011, 240),
-///     (HallPattern::P001, 300),
-/// ])
-/// ```
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct HallMap {
-    entries: [(HallPattern, u16); 6],
-}
-
-impl HallMap {
-    /// Create a hall map from exactly 6 (pattern, angle) pairs.
-    pub const fn new(entries: [(HallPattern, u16); 6]) -> Self {
-        Self { entries }
-    }
-
-    /// Returns the angle for a pattern, or `None` if the pattern was not configured.
-    #[inline]
-    fn get(&self, pattern: u8) -> Option<u16> {
-        let mut i = 0;
-        while i < 6 {
-            if self.entries[i].0 as u8 == pattern {
-                return Some(self.entries[i].1);
-            }
-            i += 1;
-        }
-        None
-    }
-}
-
-impl Default for HallMap {
-    fn default() -> Self {
-        Self::new([
-            (HallPattern::P101, 0),
-            (HallPattern::P100, 60),
-            (HallPattern::P110, 120),
-            (HallPattern::P010, 180),
-            (HallPattern::P011, 240),
-            (HallPattern::P001, 300),
-        ])
-    }
-}
-
 /// Hall sensor configuration.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -88,8 +16,6 @@ pub struct Config {
     pub pull: Pull,
     /// Digital filter applied to hall inputs (TI1F).
     pub filter: FilterValue,
-    /// Mapping from hall sensor patterns to electrical angles.
-    pub hall_map: HallMap,
     /// The counting frequency
     pub tim_freq: Hertz,
 }
@@ -99,7 +25,6 @@ impl Default for Config {
         Self {
             pull: Pull::None,
             filter: FilterValue::NO_FILTER,
-            hall_map: HallMap::default(),
             tim_freq: Hertz(1_000_000),
         }
     }
@@ -107,16 +32,12 @@ impl Default for Config {
 
 /// Snapshot of hall sensor state
 pub struct HallState {
-    /// angle of current hall sector (0, 60, ..., 300)
-    pub hall_sector: u16,
-    /// angle between current sector and next sector, with sign indicating current direction of rotation
-    pub hall_span: i16,
-    /// previous timer count (period) between hall edges, scaled by 2^32 (i.e. 1<<32 / period)
-    pub period_recip: u32,
-    /// current timer count since last hall edge (i.e. ratio_q16 = (counter*period_recip) >> 16)
+    /// reciprocal of previous timer count (period between hall edges), scaled by 2^32-1 (val = 2^32-1 / period)
+    pub period_reciprocal: u32,
+    /// current timer count
     pub counter: u32,
-    /// `true` if the last sensor reading was an unmapped hall pattern (e.g. 000 or 111)
-    pub invalid_pattern: bool,
+    /// 3 bit hall pattern from the last hall edge
+    pub pattern: u8,
 }
 
 /// Hall sensor driver
@@ -129,23 +50,15 @@ pub struct HallSensor<'d, T: GeneralInstance4Channel> {
     pin_b: u8,
     pin_c: u8,
 
-    hall_map: HallMap,
-
-    // --- Atomic state written and read from different ISRs ---
     /// count of consecutive update events (overflows) since a hal edge
-    overflows: AtomicU16,
-    /// Most recent 3-bit hall pattern
-    pattern: AtomicU8,
-    /// Hall period value reciprocal (1<<32 / (overflows*1<<16 + counter) at last hall edge
-    period_recip: AtomicU32,
-    /// signed angular span to the next hall sector, computed at each hall edge
-    hall_span: AtomicI32,
-    /// `true` if the last sensor reading was an unmapped hall pattern
-    invalid_pattern: AtomicBool,
-}
+    num_overflows: u16,
 
-// Safety for Sync: all mutable state is in atomics
-unsafe impl<T: GeneralInstance4Channel> Sync for HallSensor<'_, T> {}
+    /// Hall period value reciprocal ((2^32-1) / (overflows*(2^16-1) + counter) at last hall edge
+    period_reciprocal: u32,
+
+    /// 3 bit hall pattern from the last hall edge
+    pattern: u8,
+}
 
 impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
     /// Create a new hall sensor driver
@@ -170,6 +83,12 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             "Hall sensor pins must be on the same GPIO port"
         );
         let gpio = ch1.block();
+
+        let idr = gpio.idr().read().0;
+        let ha = idr.get_bit(pin_a as usize) as u8;
+        let hb = idr.get_bit(pin_b as usize) as u8;
+        let hc = idr.get_bit(pin_c as usize) as u8;
+        let initial_pattern = ha | (hb << 1) | (hc << 2);
 
         // Configure alternate functions
         let af_type = AfType::input(config.pull);
@@ -214,17 +133,14 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             pin_a,
             pin_b,
             pin_c,
-            hall_map: config.hall_map,
-            overflows: AtomicU16::new(0),
-            pattern: AtomicU8::new(0),
-            period_recip: AtomicU32::new(0),
-            hall_span: AtomicI32::new(0),
-            invalid_pattern: AtomicBool::new(false),
+            num_overflows: 0,
+            period_reciprocal: 0,
+            pattern: initial_pattern,
         }
     }
 
     /// Call this from the timer peripherals interrupt handler
-    pub fn on_interrupt(&self) {
+    pub fn on_interrupt(&mut self) {
         if self.inner.get_update_interrupt() {
             self.on_update_interrupt();
         } else if self.inner.get_input_interrupt(Channel::Ch1) {
@@ -232,18 +148,27 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         }
     }
 
-    /// Overflow events indicate motor stall or insufficient prescaling,
-    /// this handler tracks consecutive overflows to account for them in the hall period
-    fn on_update_interrupt(&self) {
-        let current = self.overflows.load( Ordering::Relaxed);
-        if current < u16::MAX {
-            self.overflows.store(current + 1, Ordering::Relaxed);
+    /// This handler tracks consecutive overflows to account for them in the hall period
+    fn on_update_interrupt(&mut self) {
+        let num_overflows = self.num_overflows;
+        if num_overflows < u16::MAX {
+            self.num_overflows += 1;
         }
         self.inner.clear_update_interrupt();
     }
 
-    /// Compute the hall period and store the hall state on each XOR edge event
-    fn on_input_interrupt(&self) {
+    /// Returns the current 3 bit hall pattern (for calibration use)
+    pub fn read_hall_pattern(&self) -> u8 {
+         // Read hall pin states from GPIO IDR
+        let idr = self.gpio.idr().read().0;
+        let ha = idr.get_bit(self.pin_a as usize) as u8;
+        let hb = idr.get_bit(self.pin_b as usize) as u8;
+        let hc = idr.get_bit(self.pin_c as usize) as u8;
+        ha | (hb << 1) | (hc << 2)
+    }
+
+    /// Compute the hall period on each XOR edge event
+    fn on_input_interrupt(&mut self) {
         let regs = self.inner.regs_gp16();
         
         // Workaround for race condition between read, update ISR, and counter clear by HW
@@ -251,10 +176,10 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         let mut captured;
         let mut update_isr_active;
         loop {
-            overflows = self.overflows.load(Ordering::Relaxed);
+            overflows = self.num_overflows;
             captured = regs.ccr(0).read().0 as u16;
             update_isr_active = self.inner.get_update_interrupt();
-            let tmp = self.overflows.load(Ordering::Relaxed);
+            let tmp = self.num_overflows;
             if overflows == tmp {
                 break;
             }
@@ -264,79 +189,44 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             self.inner.clear_update_interrupt();
             overflows += 1;
         }
-        let period : u32 = ((overflows as u32) << 16) | (captured as u32);
-
-        // Read hall pin states from GPIO IDR in a single bus access
-        let old_pattern = self.pattern.load(Ordering::Relaxed);
-        let idr = self.gpio.idr().read().0;
-        let ha = idr.get_bit(self.pin_a as usize) as u8;
-        let hb = idr.get_bit(self.pin_b as usize) as u8;
-        let hc = idr.get_bit(self.pin_c as usize) as u8;
-        let pattern = ha | (hb << 1) | (hc << 2);
-
-        // Check if the new pattern is mapped
-        let new_angle = self.hall_map.get(pattern);
-        self.invalid_pattern.store(new_angle.is_none(), Ordering::Relaxed);
-
-        // Compute signed span from previous sector to this one (shortest path around 360)
-        let old_angle = self.hall_map.get(old_pattern);
-        let span = if let (Some(old), Some(new)) = (old_angle, new_angle) {
-            let mut delta = new as i32 - old as i32;
-            if delta > 180 {
-                delta -= 360;
-            }
-            if delta < -180 {
-                delta += 360;
-            }
-            delta
-        } else {
-            0
-        };
-        self.hall_span.store(span, Ordering::Relaxed);
-
-        let mut period_recip: u32 = 0;
+        let period: u32 = ((overflows as u32) << 16) | (captured as u32);
+        let mut period_reciprocal: u32 = 0;
         if period > 0 {
-            period_recip = u32::MAX / period;
+            period_reciprocal = u32::MAX / period;
         }
-        self.pattern.store(pattern, Ordering::Relaxed);
-        self.period_recip.store(period_recip, Ordering::Relaxed);
+        self.period_reciprocal = period_reciprocal;
+
+        self.pattern = self.read_hall_pattern();
         self.inner.clear_input_interrupt(Channel::Ch1);
-        self.overflows.store(0, Ordering::Relaxed);
+        self.num_overflows = 0;
     }
 
     /// Takes a snapshot of the current hall state
-    #[inline]
     pub fn read_state(&self) -> HallState {
         let mut overflows;
         let mut counter;
         let mut update_isr_active;
         // Workaround for race condition between read, update ISR, and counter clear by HW
         loop {
-            overflows = self.overflows.load(Ordering::Relaxed);
+            overflows = self.num_overflows;
             counter = self.inner.regs_gp16().cnt().read().0 as u16;
             update_isr_active = self.inner.get_update_interrupt();
-            let tmp = self.overflows.load(Ordering::Relaxed);
+            let tmp = self.num_overflows;
             if overflows == tmp {
                 break;
             }
         }
-        // Do only local increment here, and let update ISR do its own increment by not clearing the ISR flag
+        // If there is a pending ISR increment locally, 
+        // and let update ISR do the actual increment by not clearing the ISR flag
         if update_isr_active {
             overflows += 1;
         }
         let count : u32 = (overflows as u32) * (u16::MAX as u32) + (counter as u32);
 
-        let pattern = self.pattern.load(Ordering::Relaxed);
-        let invalid = self.invalid_pattern.load(Ordering::Relaxed);
-        let cur_angle = self.hall_map.get(pattern).unwrap_or(0);
-        let hall_span = self.hall_span.load(Ordering::Relaxed) as i16;
-
         HallState {
-            hall_sector: pattern as u16,
-            hall_span,
-            period_recip: self.period_recip.load(Ordering::Relaxed),
+            period_reciprocal: self.period_reciprocal,
             counter: count,
-            invalid_pattern: invalid,
+            pattern: self.pattern,
         }
     }
 }

@@ -21,65 +21,58 @@ pub trait InpSelect<T: Instance>: SealedInpSelect<T> {}
 #[allow(private_bounds)]
 pub trait BlankSelect<T: Instance>: SealedBlankSelect<T> {}
 
-macro_rules! impl_comp_inmsel {
-    ($inst:ident, $enum:ty) => {
-        impl SealedInmSelect<crate::peripherals::$inst> for $enum {}
-        impl InmSelect<crate::peripherals::$inst> for $enum {}
-    };
-}
-
-macro_rules! impl_comp_inpsel {
-    ($inst:ident, $enum:ty) => {
-        impl SealedInpSelect<crate::peripherals::$inst> for $enum {}
-        impl InpSelect<crate::peripherals::$inst> for $enum {}
-    };
-}
-
-macro_rules! impl_comp_blanksel {
-    ($inst:ident, $enum:ty) => {
-        impl SealedBlankSelect<crate::peripherals::$inst> for $enum {}
-        impl BlankSelect<crate::peripherals::$inst> for $enum {}
-    };
+macro_rules! impl_comp_bindings {
+    ($($inst:ident: $inm:ty, $inp:ty, $blank:ty;)*) => {$(
+        impl SealedInmSelect<crate::peripherals::$inst> for $inm {}
+        impl InmSelect<crate::peripherals::$inst> for $inm {}
+        impl SealedInpSelect<crate::peripherals::$inst> for $inp {}
+        impl InpSelect<crate::peripherals::$inst> for $inp {}
+        impl SealedBlankSelect<crate::peripherals::$inst> for $blank {}
+        impl BlankSelect<crate::peripherals::$inst> for $blank {}
+    )*};
 }
 
 #[cfg(stm32g4)]
 mod _g4_bindings {
     use super::*;
-    impl_comp_inmsel!(COMP1, Comp1InmSel);
-    impl_comp_inmsel!(COMP2, Comp2InmSel);
-    impl_comp_inmsel!(COMP3, Comp3InmSel);
-    impl_comp_inmsel!(COMP4, Comp4InmSel);
-    impl_comp_inmsel!(COMP5, Comp5InmSel);
-    impl_comp_inmsel!(COMP6, Comp6InmSel);
-    impl_comp_inmsel!(COMP7, Comp7InmSel);
-    impl_comp_inpsel!(COMP1, Comp1InpSel);
-    impl_comp_inpsel!(COMP2, Comp2InpSel);
-    impl_comp_inpsel!(COMP3, Comp3InpSel);
-    impl_comp_inpsel!(COMP4, Comp4InpSel);
-    impl_comp_inpsel!(COMP5, Comp5InpSel);
-    impl_comp_inpsel!(COMP6, Comp6InpSel);
-    impl_comp_inpsel!(COMP7, Comp7InpSel);
-    impl_comp_blanksel!(COMP1, Comp1BlankSel);
-    impl_comp_blanksel!(COMP2, Comp2BlankSel);
-    impl_comp_blanksel!(COMP3, Comp3BlankSel);
-    impl_comp_blanksel!(COMP4, Comp4BlankSel);
-    impl_comp_blanksel!(COMP5, Comp5BlankSel);
-    impl_comp_blanksel!(COMP6, Comp6BlankSel);
-    impl_comp_blanksel!(COMP7, Comp7BlankSel);
+    impl_comp_bindings! {
+        COMP1: Comp1InmSel, Comp1InpSel, Comp1BlankSel;
+        COMP2: Comp2InmSel, Comp2InpSel, Comp2BlankSel;
+        COMP3: Comp3InmSel, Comp3InpSel, Comp3BlankSel;
+        COMP4: Comp4InmSel, Comp4InpSel, Comp4BlankSel;
+        COMP5: Comp5InmSel, Comp5InpSel, Comp5BlankSel;
+        COMP6: Comp6InmSel, Comp6InpSel, Comp6BlankSel;
+        COMP7: Comp7InmSel, Comp7InpSel, Comp7BlankSel;
+    }
 }
 
 pub(crate) trait SealedInstance {
     fn regs() -> crate::pac::comp::Comp;
+    fn number() -> usize;
 }
 
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static {}
+
+macro_rules! comp_number {
+    (COMP1) => { 1 };
+    (COMP2) => { 2 };
+    (COMP3) => { 3 };
+    (COMP4) => { 4 };
+    (COMP5) => { 5 };
+    (COMP6) => { 6 };
+    (COMP7) => { 7 };
+}
 
 foreach_peripheral! {
     (comp, $inst:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::comp::Comp {
                 crate::pac::$inst
+            }
+
+            fn number() -> usize {
+                comp_number!($inst)
             }
         }
 
@@ -92,6 +85,11 @@ pub struct Comp<'a, T: Instance> {
 }
 
 impl<'a, T: Instance> Comp<'a, T> {
+    /// Returns the comparator number (e.g. 4 for COMP4).
+    pub fn number(&self) -> usize {
+        T::number()
+    }
+
     /// Creates a new comparator instance
     pub fn new(comp: Peri<'a, T>, input: impl InpSelect<T>, complementary_input: impl InmSelect<T>, blanking: impl BlankSelect<T>) -> Self {
         let regs = T::regs();

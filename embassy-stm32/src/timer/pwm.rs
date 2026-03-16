@@ -1,6 +1,6 @@
 use stm32_metapac::timer::vals::*;
+use crate::comp::{Comp, Instance as CompInstance};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::lptim::pwm::Pwm;
 use crate::time::Hertz;
 use crate::timer::low_level::{FilterValue, OutputCompareMode, RoundTo, Timer};
 use crate::timer::{AdvancedInstance4Channel, BreakInput, BreakInputPin, Ch1, Ch2, Ch3, Ch4, Channel, CountingMode, TimerComplementaryPin, TimerPin};
@@ -10,6 +10,20 @@ use crate::Peri;
 pub struct NotRunning;
 pub struct Running;
 
+
+pub trait ValidDeadTime {
+    fn to_nanoseconds(self) -> u32;
+}
+pub enum PwmDeadtime {
+    Nanosecods(u32),
+}
+impl ValidDeadTime for PwmDeadtime {
+    fn to_nanoseconds(self) -> u32 {
+        match self {
+            PwmDeadtime::Nanosecods(time) => time,
+        }
+    }
+}
 
 /// PWM derived from an advanced control timer
 pub struct PWM<'a, T: AdvancedInstance4Channel, RUNNING> {
@@ -123,10 +137,10 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
     }
 
     /// Configure the symmetric deadtime, given in nanoseconds
-    pub fn with_deadtime_ns(self, value: u32) -> Self {
+    pub fn with_deadtime<V>(self, value: V) -> Self where V: ValidDeadTime {
         self.inner.set_clock_division(Ckd::DIV1);
         let ftds = self.inner.get_clock_frequency().0;
-        let cycles = (value as u64 * ftds as u64).div_ceil(1_000_000_000);
+        let cycles = (value.to_nanoseconds() as u64 * ftds as u64).div_ceil(1_000_000_000);
         
         let dtg = if cycles <= 127 {
             let bits = cycles as u8;
@@ -147,10 +161,10 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
         self
     }
 
-    /// Assign COMPx peripheral as a break1 event source
-    pub fn with_break1_comp_x(self, x: usize, output_polarity: Bkp, filter: FilterValue) -> Self {
+    /// Assign a comparator as a break1 event source
+    pub fn with_break1_comp<C: CompInstance>(self, comp: &Comp<'_, C>, output_polarity: Bkp, filter: FilterValue) -> Self {
         self.inner.regs_advanced().af1().modify(|w| {
-            w.set_bkcmpe(x, true);
+            w.set_bkcmpe(comp.number(), true);
         });
         self.inner.regs_advanced().bdtr().modify(|w| {
             w.set_bke(0, true);
