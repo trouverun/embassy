@@ -36,7 +36,7 @@ macro_rules! floating_fixed_convert {
             // It's necessary to cast the unsigned integer to signed integer, before convert it to a float value.
             // Since value from register is actually a "signed value", a "as" cast will keep original binary format but mark it as a signed value.
             // see https://doc.rust-lang.org/reference/expressions/operator-expr.html#numeric-cast
-            (value as $signed_bin_typ as $float_ty) / ((1 as $unsigned_bin_typ << $offset) as $float_ty)
+            (value as $signed_bin_typ as $float_ty) * (1.0 / ((1 as $unsigned_bin_typ << $offset) as $float_ty))
         }
     };
 }
