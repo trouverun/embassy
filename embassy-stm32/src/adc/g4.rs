@@ -20,7 +20,7 @@ use crate::{Peri, pac, rcc};
 mod external_triggered;
 pub use external_triggered::{ExternalTriggeredADC, Adc12RegularTrigger, Adc345RegularTrigger, 
     Adc12InjectedTrigger, Adc345InjectedTrigger, EocInterruptEnabled, JeosInterruptEnabled, 
-    StartMode, Running, NotRunning, Queued, NotQueued};
+    StartMode, Running, NotRunning, Queued, NotQueued, HasInjectedTrigger, HasRegularTrigger};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;

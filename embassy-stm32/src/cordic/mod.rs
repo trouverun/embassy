@@ -41,7 +41,7 @@ mod width_sealed {
     pub trait Sealed {}
 }
 
-/// Data width trait — controls argument/result types and hardware access patterns.
+/// Data width trait which controls argument/result types and hardware access patterns.
 #[allow(private_bounds)]
 pub trait DataWidth: width_sealed::Sealed {
     /// Argument type exposed to user
@@ -53,7 +53,7 @@ pub trait DataWidth: width_sealed::Sealed {
     const ARGSIZE: vals::Size;
     #[doc(hidden)]
     const RESSIZE: vals::Size;
-    /// +1 in the respective fixed-point format, used for ARG2 initialization
+    /// 1 in the respective fixed-point format (Q15 or Q31), used for ARG2 initialization
     #[doc(hidden)]
     const ARG2_PLUS_ONE: Self::Arg;
     /// NRES value for two-result reads: NUM1 for Q15 (packed in one read), NUM2 for Q31.
@@ -203,7 +203,7 @@ impl<'d, T: Instance> Drop for Cordic<'d, T> {
 }
 
 impl<'a, 'd, T: Instance, F: FunctionType, W: DataWidth> Configured<'a, 'd, T, F, W> {
-    /// Start a computation. For two-arg functions, ARG2 defaults to +1 (unit modulus) on
+    /// Start a computation. For two-arg functions, ARG2 defaults to 1 (unit modulus) on
     /// the first call and is retained by the hardware on subsequent calls. 
     pub fn start1(&mut self, arg: W::Arg) -> Started<'_, 'd, T, F, W> {
         let nres = if F::TWO_RES { W::NRES_TWO } else { vals::Num::NUM1 };
@@ -233,14 +233,14 @@ impl<'a, 'd, T: Instance, F: FnTwoArgs, W: DataWidth> Configured<'a, 'd, T, F, W
 }
 
 impl<'a, 'd, T: Instance, F: FnOneRes, W: DataWidth> Started<'a, 'd, T, F, W> {
-    /// Read the primary result. Stalls the AHB bus until the computation is ready.
+    /// Read the primary result. Stalls until the computation is ready.
     pub fn result(self) -> W::Res {
         W::read_one_res(T::regs())
     }
 }
 
 impl<'a, 'd, T: Instance, F: FnTwoRes, W: DataWidth> Started<'a, 'd, T, F, W> {
-    /// Read both results. Stalls the AHB bus until the computation is ready.
+    /// Read both results. Stalls until the computation is ready.
     pub fn result2(self) -> (W::Res, W::Res) {
         W::read_two_res(T::regs())
     }

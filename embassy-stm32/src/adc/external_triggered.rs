@@ -391,9 +391,9 @@ impl<'a, T: Instance<Regs = crate::pac::adc::Adc>> ExternalTriggeredADC<'a, T, N
 }
 
 impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, QUEUED> ExternalTriggeredADC<'a, T, Running, QUEUED> {
-    pub fn read(&self) -> i16 {
+    pub fn read(&self) -> u16 {
         while !T::regs().isr().read().eoc() {}
-        T::regs().dr().read().rdata() as i16
+        T::regs().dr().read().rdata() as u16
     }
     
     pub fn read_injected<const N: usize>(&self) -> [i16; N] {
