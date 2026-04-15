@@ -32,12 +32,14 @@ impl Default for Config {
 
 /// Snapshot of hall sensor state
 pub struct HallState {
-    /// reciprocal of previous timer count (period between hall edges), scaled by 2^32-1 (val = 2^32-1 / period)
-    pub period_reciprocal: u32,
+    /// reciprocal of previous timer count (period between hall edges), i.e. 1.0 / period
+    pub hall_period_reciprocal_cycles: f32,
     /// current timer count
     pub counter: u32,
-    /// 3 bit hall pattern from the last hall edge
+    /// 3 bit hall pattern from the most recent hall edge
     pub pattern: u8,
+    /// 3 bit hall pattern from the previous hall edge
+    pub prev_pattern: u8
 }
 
 /// Hall sensor driver
@@ -50,14 +52,20 @@ pub struct HallSensor<'d, T: GeneralInstance4Channel> {
     pin_b: u8,
     pin_c: u8,
 
-    /// count of consecutive update events (overflows) since a hal edge
+    /// Count of consecutive update events (overflows) since a hal edge
     num_overflows: u16,
 
-    /// Hall period value reciprocal ((2^32-1) / (overflows*(2^16-1) + counter) at last hall edge
-    period_reciprocal: u32,
+    /// Hall period value reciprocal (1.0 / (overflows*(2^16-1) + counter) at last hall edge
+    hall_period_reciprocal_cycles: f32,
 
-    /// 3 bit hall pattern from the last hall edge
+    /// 3 bit hall pattern from the most recent hall edge
     pattern: u8,
+
+    /// 3 bit hall pattern from the previous hall edge
+    prev_pattern: u8,
+
+    /// Timer frequency period in s (1/freqHz)
+    pub timer_frequency_reciprocal_s: f32,
 }
 
 impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
@@ -99,6 +107,7 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         let mut inner = Timer::new(tim);
         let regs = inner.regs_gp16();
         inner.set_tick_freq(config.tim_freq);
+        let timer_frequency_reciprocal_s = 1.0 / config.tim_freq.0 as f32;
 
         // TI1S = 1: XOR CH1/CH2/CH3 onto TI1.
         regs.cr2().modify(|w| w.set_ti1s(vals::Ti1s::XOR));
@@ -134,8 +143,10 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             pin_b,
             pin_c,
             num_overflows: 0,
-            period_reciprocal: 0,
+            hall_period_reciprocal_cycles: 0.0,
             pattern: initial_pattern,
+            prev_pattern: initial_pattern,
+            timer_frequency_reciprocal_s
         }
     }
 
@@ -190,12 +201,13 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             overflows += 1;
         }
         let period: u32 = ((overflows as u32) << 16) | (captured as u32);
-        let mut period_reciprocal: u32 = 0;
+        let mut hall_period_reciprocal_cycles = 0.0;
         if period > 0 {
-            period_reciprocal = u32::MAX / period;
+            hall_period_reciprocal_cycles = 1.0 / period as f32;
         }
-        self.period_reciprocal = period_reciprocal;
+        self.hall_period_reciprocal_cycles = hall_period_reciprocal_cycles;
 
+        self.prev_pattern = self.pattern;
         self.pattern = self.read_hall_pattern();
         self.inner.clear_input_interrupt(Channel::Ch1);
         self.num_overflows = 0;
@@ -224,9 +236,10 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         let count : u32 = (overflows as u32) * (u16::MAX as u32) + (counter as u32);
 
         HallState {
-            period_reciprocal: self.period_reciprocal,
+            hall_period_reciprocal_cycles: self.hall_period_reciprocal_cycles,
             counter: count,
             pattern: self.pattern,
+            prev_pattern: self.prev_pattern
         }
     }
 }
