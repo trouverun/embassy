@@ -64,8 +64,8 @@ pub struct HallSensor<'d, T: GeneralInstance4Channel> {
     /// 3 bit hall pattern from the previous hall edge
     prev_pattern: u8,
 
-    /// Timer frequency period in s (1/freqHz)
-    pub timer_frequency_reciprocal_s: f32,
+    /// Timer frequency in Hz
+    pub timer_frequency_hz: f32,
 }
 
 impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
@@ -107,7 +107,7 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         let mut inner = Timer::new(tim);
         let regs = inner.regs_gp16();
         inner.set_tick_freq(config.tim_freq);
-        let timer_frequency_reciprocal_s = 1.0 / config.tim_freq.0 as f32;
+        let timer_frequency_hz = config.tim_freq.0 as f32;
 
         // TI1S = 1: XOR CH1/CH2/CH3 onto TI1.
         regs.cr2().modify(|w| w.set_ti1s(vals::Ti1s::XOR));
@@ -146,7 +146,7 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             hall_period_reciprocal_cycles: 0.0,
             pattern: initial_pattern,
             prev_pattern: initial_pattern,
-            timer_frequency_reciprocal_s
+            timer_frequency_hz
         }
     }
 
@@ -196,7 +196,8 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             }
         }
         if update_isr_active {
-            // consume the interupt, the update ISR should not run and increment after a hall edge occured 
+            // consume the interupt (the update ISR should not run and 
+            // double increment after a hall edge occured)
             self.inner.clear_update_interrupt();
             overflows += 1;
         }
@@ -229,11 +230,11 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
             }
         }
         // If there is a pending ISR increment locally, 
-        // and let update ISR do the actual increment by not clearing the ISR flag
+        // let update ISR do the actual increment by not clearing the ISR flag
         if update_isr_active {
             overflows += 1;
         }
-        let count : u32 = (overflows as u32) * (u16::MAX as u32) + (counter as u32);
+        let count = ((overflows as u32) << 16) | (counter as u32);
 
         HallState {
             hall_period_reciprocal_cycles: self.hall_period_reciprocal_cycles,
