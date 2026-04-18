@@ -24,7 +24,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             pull: Pull::None,
-            filter: FilterValue::NO_FILTER,
+            filter: FilterValue::FCK_INT_N2,
             tim_freq: Hertz(1_000_000),
         }
     }
@@ -55,7 +55,7 @@ pub struct HallSensor<'d, T: GeneralInstance4Channel> {
     /// Count of consecutive update events (overflows) since a hal edge
     num_overflows: u16,
 
-    /// Hall period value reciprocal (1.0 / (overflows*(2^16-1) + counter) at last hall edge
+    /// Hall period value reciprocal (1.0 / (overflows*u16::MAX + counter) at last hall edge
     hall_period_reciprocal_count: f32,
 
     /// 3 bit hall pattern from the most recent hall edge
@@ -63,6 +63,8 @@ pub struct HallSensor<'d, T: GeneralInstance4Channel> {
 
     /// 3 bit hall pattern from the previous hall edge
     prev_pattern: u8,
+
+    /// Tick frequency of the internal timer
     frequency_hz: f32
 }
 
@@ -105,7 +107,9 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         let mut inner = Timer::new(tim);
         let regs = inner.regs_gp16();
         inner.set_tick_freq(config.tim_freq);
-        let frequency_hz = inner.get_frequency().0 as f32;
+        // Actual achieved tick frequency:
+        let psc = regs.psc().read() as u32 + 1;
+        let frequency_hz = (inner.get_clock_frequency().0 / psc) as f32;
 
         // TI1S = 1: XOR CH1/CH2/CH3 onto TI1.
         regs.cr2().modify(|w| w.set_ti1s(vals::Ti1s::XOR));
@@ -148,17 +152,18 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         }
     }
 
-    pub fn get_frequency_hz(&self) -> f32 {
+    /// Returns the configured tick frequency of the underlying timer
+    pub fn get_tick_frequency_hz(&self) -> f32 {
         self.frequency_hz
     }
 
     /// Call this from the timer peripherals interrupt handler
     pub fn on_interrupt(&mut self) {
-        if self.inner.get_input_interrupt(Channel::Ch1) {
-            self.on_input_interrupt();
-        }
         if self.inner.get_update_interrupt() {
             self.on_update_interrupt();
+        }
+        if self.inner.get_input_interrupt(Channel::Ch1) {
+            self.on_input_interrupt();
         }
     }
 
@@ -173,7 +178,6 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
 
     /// Returns the current 3 bit hall pattern (for calibration use)
     pub fn read_hall_pattern(&self) -> u8 {
-         // Read hall pin states from GPIO IDR
         let idr = self.gpio.idr().read().0;
         let ha = idr.get_bit(self.pin_a as usize) as u8;
         let hb = idr.get_bit(self.pin_b as usize) as u8;
@@ -184,27 +188,10 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
     /// Compute the hall period on each XOR edge event
     fn on_input_interrupt(&mut self) {
         let regs = self.inner.regs_gp16();
-        
-        // Workaround for race condition between read, update ISR, and counter clear by HW
-        let mut overflows;
-        let mut captured;
-        let mut update_isr_active;
-        loop {
-            overflows = self.num_overflows;
-            captured = regs.ccr(0).read().0 as u16;
-            update_isr_active = self.inner.get_update_interrupt();
-            let tmp = self.num_overflows;
-            if overflows == tmp {
-                break;
-            }
-        }
-        if update_isr_active {
-            // consume the interupt (the update ISR should not run and 
-            // double increment after a hall edge occured)
-            self.inner.clear_update_interrupt();
-            overflows += 1;
-        }
-        let period: u32 = ((overflows as u32) << 16) | (captured as u32);
+        let overflows = self.num_overflows;
+        let captured = regs.ccr(0).read().0 as u16;
+
+        let period: u32 = captured as u32 + (overflows as u32 * u16::MAX as u32);
         let mut hall_period_reciprocal_count = 0.0;
         if period > 0 {
             hall_period_reciprocal_count = 1.0 / period as f32;
@@ -219,25 +206,10 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
 
     /// Takes a snapshot of the current hall state
     pub fn read_state(&self) -> HallState {
-        let mut overflows;
-        let mut counter;
-        let mut update_isr_active;
-        // Workaround for race condition between read, update ISR, and counter clear by HW
-        loop {
-            overflows = self.num_overflows;
-            counter = self.inner.regs_gp16().cnt().read().0 as u16;
-            update_isr_active = self.inner.get_update_interrupt();
-            let tmp = self.num_overflows;
-            if overflows == tmp {
-                break;
-            }
-        }
-        // If there is a pending ISR increment locally, 
-        // let update ISR do the actual increment by not clearing the ISR flag
-        if update_isr_active {
-            overflows += 1;
-        }
-        let count = ((overflows as u32) << 16) | (counter as u32);
+        // Account for unserviced update ISR:
+        let overflows = self.num_overflows + self.inner.get_update_interrupt() as u16;
+        let counter = self.inner.regs_gp16().cnt().read().0 as u16;
+        let count = counter as u32 + (overflows as u32 * u16::MAX as u32);
 
         HallState {
             hall_period_reciprocal_count: self.hall_period_reciprocal_count,

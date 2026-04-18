@@ -408,9 +408,10 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// used to load value from pre-load registers. If called when the timer is running,
     /// it may disrupt the output waveform.
     pub fn generate_update_event(&self) {
+        let stored_urs = self.regs_core().cr1().read().urs();
         self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
         self.regs_core().egr().write(|r| r.set_ug(true));
-        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
+        self.regs_core().cr1().modify(|r| r.set_urs(stored_urs));
     }
 
     /// Stop the timer.
