@@ -213,7 +213,7 @@ pub struct NotQueued;
 pub struct Queued;
 
 pub struct ExternalTriggeredADC<'a, T: Instance<Regs = crate::pac::adc::Adc>, RUNNING, QUEUED> {
-    running: RUNNING,
+    _running: RUNNING,
     queued: QUEUED,
     inner: Adc<'a, T>,
     regular_configured: bool,
@@ -225,7 +225,7 @@ impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, RUNNING, QUEUED> ExternalTrig
         let regs = T::regs();
         regs.cfgr().modify(|w| w.set_jauto(false));
         ExternalTriggeredADC { 
-            inner: adc, running: NotRunning, queued: NotQueued,
+            inner: adc, _running: NotRunning, queued: NotQueued,
             regular_configured: false, injected_configured: false, 
         }
     }
@@ -238,7 +238,7 @@ impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, RUNNING, QUEUED> ExternalTrig
             w.set_jqdis(false);
         });
         ExternalTriggeredADC { 
-            inner: adc, running: NotRunning, queued: Queued,
+            inner: adc, _running: NotRunning, queued: Queued,
             regular_configured: false, injected_configured: false
         }
     }
@@ -293,7 +293,7 @@ impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, RUNNING, QUEUED> ExternalTrig
             }
         }
         ExternalTriggeredADC { 
-            inner: self.inner, running: Running, queued: self.queued,
+            inner: self.inner, _running: Running, queued: self.queued,
             regular_configured: self.regular_configured, injected_configured: self.injected_configured, 
         }
     }
@@ -418,7 +418,7 @@ impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, QUEUED> ExternalTriggeredADC<
         }
 
         ExternalTriggeredADC { 
-            inner: self.inner, running: NotRunning, queued: self.queued,
+            inner: self.inner, _running: NotRunning, queued: self.queued,
             regular_configured: self.regular_configured, injected_configured: self.injected_configured, 
         }
     }

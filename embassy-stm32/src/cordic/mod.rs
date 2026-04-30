@@ -1,23 +1,3 @@
-//! Coordinate Rotation Digital Computer (CORDIC)
-//!
-//! Typestate driver that encodes function and data width at the type level.
-//!
-//! # Usage
-//!
-//! ```rust,ignore
-//! let mut cordic = Cordic::new(p.CORDIC);
-//!
-//! // Configure for sine/cosine, Q1.31 — always returns both results
-//! let mut sin = cordic.configure::<Sin, Q31>(Precision::Iters12, NoScale);
-//! let started = sin.start1(angle_q31);
-//! let (sin_val, cos_val) = started.result2();
-//!
-//! // Reconfigure for sqrt
-//! let mut sqrt = cordic.configure::<Sqrt, Q31>(Precision::Iters24, SqrtScale::N0);
-//! let started = sqrt.start1(value);
-//! let result = started.result();
-//! ```
-
 use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 use crate::pac::cordic::vals;
@@ -145,7 +125,7 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + rcc::RccPeripheral {}
 
 pub struct Cordic<'d, T: Instance> {
-    peri: Peri<'d, T>,
+    _peri: Peri<'d, T>,
 }
 
 /// Configured CORDIC handle. Borrows the driver for a specific function and data width.
@@ -168,7 +148,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
     /// Create a new CORDIC driver, enabling the peripheral clock.
     pub fn new(peri: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
-        Self { peri }
+        Self { _peri: peri }
     }
 
     /// Configure the CORDIC for a specific function and data width.
@@ -205,7 +185,7 @@ impl<'d, T: Instance> Drop for Cordic<'d, T> {
 impl<'a, 'd, T: Instance, F: FunctionType, W: DataWidth> Configured<'a, 'd, T, F, W> {
     /// Start a computation. For two-arg functions, ARG2 defaults to 1 (unit modulus) on
     /// the first call and is retained by the hardware on subsequent calls. 
-    pub fn start1(&mut self, arg: W::Arg) -> Started<'_, 'd, T, F, W> {
+    pub fn start_one_arg(&mut self, arg: W::Arg) -> Started<'_, 'd, T, F, W> {
         let nres = if F::TWO_RES { W::NRES_TWO } else { vals::Num::NUM1 };
         let regs = T::regs();
         if F::TWO_ARGS && !self.arg2_loaded {
@@ -222,7 +202,7 @@ impl<'a, 'd, T: Instance, F: FunctionType, W: DataWidth> Configured<'a, 'd, T, F
 
 impl<'a, 'd, T: Instance, F: FnTwoArgs, W: DataWidth> Configured<'a, 'd, T, F, W> {
     /// Start a computation with two explicit arguments.
-    pub fn start2(&mut self, arg1: W::Arg, arg2: W::Arg) -> Started<'_, 'd, T, F, W> {
+    pub fn start_two_args(&mut self, arg1: W::Arg, arg2: W::Arg) -> Started<'_, 'd, T, F, W> {
         let nres = if F::TWO_RES { W::NRES_TWO } else { vals::Num::NUM1 };
         let regs = T::regs();
         regs.csr().modify(|v| { v.set_nargs(W::NARGS_TWO); v.set_nres(nres); });
@@ -234,14 +214,14 @@ impl<'a, 'd, T: Instance, F: FnTwoArgs, W: DataWidth> Configured<'a, 'd, T, F, W
 
 impl<'a, 'd, T: Instance, F: FnOneRes, W: DataWidth> Started<'a, 'd, T, F, W> {
     /// Read the primary result. Stalls until the computation is ready.
-    pub fn result(self) -> W::Res {
+    pub fn result_one_value(self) -> W::Res {
         W::read_one_res(T::regs())
     }
 }
 
 impl<'a, 'd, T: Instance, F: FnTwoRes, W: DataWidth> Started<'a, 'd, T, F, W> {
     /// Read both results. Stalls until the computation is ready.
-    pub fn result2(self) -> (W::Res, W::Res) {
+    pub fn result_two_values(self) -> (W::Res, W::Res) {
         W::read_two_res(T::regs())
     }
 }

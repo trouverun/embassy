@@ -54,16 +54,12 @@ pub struct HallSensor<'d, T: GeneralInstance4Channel> {
 
     /// Count of consecutive update events (overflows) since a hal edge
     num_overflows: u16,
-
     /// Hall period value reciprocal (1.0 / (overflows*u16::MAX + counter) at last hall edge
     hall_period_reciprocal_count: f32,
-
     /// 3 bit hall pattern from the most recent hall edge
     pattern: u8,
-
     /// 3 bit hall pattern from the previous hall edge
     prev_pattern: u8,
-
     /// Tick frequency of the internal timer
     frequency_hz: f32
 }
