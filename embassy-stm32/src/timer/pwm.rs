@@ -27,7 +27,7 @@ impl ValidDeadTime for PwmDeadtime {
 
 /// PWM derived from an advanced control timer
 pub struct PWM<'a, T: AdvancedInstance4Channel, RUNNING> {
-    running: RUNNING,
+    _running: RUNNING,
     inner: Timer<'a, T>
 }
 
@@ -50,7 +50,7 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
         inner.set_frequency(effective_freq, RoundTo::Faster);
         inner.set_counting_mode(mode);
         Self {
-            running: NotRunning,
+            _running: NotRunning,
             inner
         }
     }
@@ -208,7 +208,7 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
         self.inner.regs_advanced().bdtr().modify(|w| w.set_lock(Lock::LEVEL1));
         self.inner.start();
         PWM {
-            running: Running,
+            _running: Running,
             inner: self.inner
         }
     }

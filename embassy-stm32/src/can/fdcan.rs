@@ -182,12 +182,22 @@ impl<'d> CanConfigurator<'d> {
     /// Creates a new Fdcan instance, keeping the peripheral in sleep mode.
     /// You must call [Fdcan::enable_non_blocking] to use the peripheral.
     pub fn new<T: Instance>(
-        _peri: Peri<'d, T>,
+        peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         _irqs: impl interrupt::typelevel::Binding<T::IT0Interrupt, IT0InterruptHandler<T>>
         + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
         + 'd,
+    ) -> CanConfigurator<'d> {
+        unsafe { Self::new_unbound(peri, rx, tx) }
+    }
+
+    /// Creates a new Fdcan instance without requiring a compile-time interrupt binding.
+    /// SAFETY: the caller is responsible for ensuring that the peripheral interrupts have a valid NVIC vector entry servicing them.
+    pub unsafe fn new_unbound<T: Instance>(
+        _peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
     ) -> CanConfigurator<'d> {
         set_as_af!(rx, AfType::input(Pull::None));
         set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));

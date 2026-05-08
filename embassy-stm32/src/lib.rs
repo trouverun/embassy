@@ -61,7 +61,6 @@ pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
 #[cfg(aes_v3b)]
 pub mod aes;
-// #[cfg(comp_u5)]
 pub mod comp;
 #[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
 pub mod cordic;
