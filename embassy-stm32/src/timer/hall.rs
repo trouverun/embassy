@@ -203,7 +203,7 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
     /// Takes a snapshot of the current hall state
     pub fn read_state(&self) -> HallState {
         // Account for unserviced update ISR:
-        let overflows = self.num_overflows + self.inner.get_update_interrupt() as u16;
+        let overflows = self.num_overflows.saturating_add(self.inner.get_update_interrupt() as u16);
         let counter = self.inner.regs_gp16().cnt().read().0 as u16;
         let count = counter as u32 + (overflows as u32 * u16::MAX as u32);
 

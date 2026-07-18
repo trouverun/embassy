@@ -1,6 +1,7 @@
 use stm32_metapac::timer::vals::*;
 use crate::comp::{Comp, Instance as CompInstance};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
+use crate::lptim::pwm::Pwm;
 use crate::time::Hertz;
 use crate::timer::low_level::{FilterValue, OutputCompareMode, RoundTo, Timer};
 use crate::timer::{AdvancedInstance4Channel, BreakInput, BreakInputPin, Ch1, Ch2, Ch3, Ch4, Channel, CountingMode, TimerComplementaryPin, TimerPin};
@@ -9,6 +10,7 @@ use crate::Peri;
 
 pub struct NotRunning;
 pub struct Running;
+pub struct Paused;
 
 
 pub trait ValidDeadTime {
@@ -250,5 +252,15 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, Running> {
         if !self.inner.regs_advanced().sr().read().bif(0) & !self.inner.regs_advanced().sr().read().bif(1) {
             self.inner.enable_outputs();
         }
+    }
+
+    /// MOE = 1
+    pub fn enable(&self) {
+        self.inner.set_moe(true);
+    }
+
+    /// MOE = 0
+    pub fn disable(&self) {
+        self.inner.set_moe(false);
     }
 }
