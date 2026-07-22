@@ -415,6 +415,24 @@ impl<'d> Can<'d> {
     ) -> BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
         BufferedCanFd::new(&self.info, self._mode, tx_buf, rxb)
     }
+
+    /// Return an ISR driven instance of driver without CAN FD support
+    pub fn isr_driven<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
+        self,
+    ) -> super::isr_driven::IsrDrivenCan<TX_BUF_SIZE, RX_BUF_SIZE> {
+        let regs = Registers {
+            regs: self.info.regs.regs,
+            msgram: self.info.regs.msgram,
+            msg_ram_offset: self.info.regs.msg_ram_offset,
+        };
+        let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
+        super::isr_driven::IsrDrivenCan::new(
+            InfoRef::new(&self.info),
+            regs,
+            ns_per_timer_tick,
+            self.config.automatic_bus_off_recovery,
+        )
+    }
 }
 
 /// User supplied buffer for RX Buffering

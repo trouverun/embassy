@@ -3,9 +3,6 @@
 //! Each CORDIC function is a zero-sized type that implements [`FunctionType`]
 //! and the appropriate marker traits ([`FnTwoArgs`], [`FnOneRes`], [`FnTwoRes`])
 //! to control which `start` and `result` methods are available at compile time.
-//!
-//! Scale is an associated type on each function, ensuring only valid scale values
-//! can be passed at compile time.
 
 use crate::pac::cordic::vals;
 
@@ -19,7 +16,7 @@ pub trait ScaleValue: Copy {
     fn raw(self) -> u8;
 }
 
-/// Scale not applicable — fixed at 0. Used by Sin, Cos, Phase, Modulus.
+/// Scale not applicable, fixed at 0. Used by Sin, Cos, Phase, Modulus.
 #[derive(Clone, Copy)]
 pub struct NoScale;
 impl ScaleValue for NoScale {
@@ -39,7 +36,7 @@ impl ScaleValue for HyperbolicScale {
     }
 }
 
-/// Scale n ∈ [0, 7]. Used by Arctangent.
+/// Argtangent scale n in [0, 7].
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum AtanScale {
@@ -67,7 +64,7 @@ impl ScaleValue for AtanScale {
     }
 }
 
-/// Scale n ∈ [1, 4]. Used by natural logarithm.
+/// Natural logarithm scale n in [1, 4].
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum LnScale {
@@ -87,7 +84,7 @@ impl ScaleValue for LnScale {
     }
 }
 
-/// Scale n ∈ [0, 2]. Used by square root.
+/// Square root scale n in [0, 2].
 #[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum SqrtScale {
@@ -120,11 +117,11 @@ pub trait FunctionType: sealed::Sealed {
     const TWO_RES: bool;
 }
 
-/// Function accepts 2 arguments — enables [`Configured::start2`]
+/// Function accepts 2 arguments, enables [`Configured::start2`]
 pub trait FnTwoArgs: FunctionType {}
-/// Function produces 1 result — enables [`Started::result`]
+/// Function produces 1 result, enables [`Started::result`]
 pub trait FnOneRes: FunctionType {}
-/// Function produces 2 results — enables [`Started::result2`]
+/// Function produces 2 results, enables [`Started::result2`]
 pub trait FnTwoRes: FunctionType {}
 
 macro_rules! define_function {

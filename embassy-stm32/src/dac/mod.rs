@@ -383,7 +383,7 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
     /// If triggering is not enabled, the new value is immediately output; otherwise,
     /// it will be output after the next trigger.
     pub fn set_voltage(&self, volts: f32) {
-        self.set_raw(Value::Bit12Right(((volts / self.vref) * 4095.0) as u16));
+        self.set_raw(Value::Bit12Right(((volts / self.vref) * 4095.0).clamp(0.0, 4095.0) as u16));
     }
 
     /// Read the current output value of the DAC.
@@ -688,7 +688,7 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
     /// If triggering is not enabled, the new values are immediately output;
     /// otherwise, they will be output after the next trigger.
     pub fn set_voltage(&self, ch1_volts: f32, ch2_volts: f32) {
-        let raw = |v: f32| ((v / self.ch1.vref) * 4095.0) as u16;
+        let raw = |v: f32| ((v / self.ch1.vref) * 4095.0).clamp(0.0, 4095.0) as u16;
         self.set_raw(DualValue::Bit12Right(raw(ch1_volts), raw(ch2_volts)));
     }
 }
