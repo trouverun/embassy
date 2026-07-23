@@ -88,17 +88,17 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         );
         let gpio = ch1.block();
 
-        let idr = gpio.idr().read().0;
-        let ha = idr.get_bit(pin_a as usize) as u8;
-        let hb = idr.get_bit(pin_b as usize) as u8;
-        let hc = idr.get_bit(pin_c as usize) as u8;
-        let initial_pattern = ha | (hb << 1) | (hc << 2);
-
         // Configure alternate functions
         let af_type = AfType::input(config.pull);
         set_as_af!(ch1, af_type);
         set_as_af!(ch2, af_type);
         set_as_af!(ch3, af_type);
+
+        let idr = gpio.idr().read().0;
+        let ha = idr.get_bit(pin_a as usize) as u8;
+        let hb = idr.get_bit(pin_b as usize) as u8;
+        let hc = idr.get_bit(pin_c as usize) as u8;
+        let initial_pattern = ha | (hb << 1) | (hc << 2);
 
         let mut inner = Timer::new(tim);
         let regs = inner.regs_gp16();
