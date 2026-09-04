@@ -391,14 +391,31 @@ impl<'a, T: Instance<Regs = crate::pac::adc::Adc>> ExternalTriggeredADC<'a, T, N
 }
 
 impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, QUEUED> ExternalTriggeredADC<'a, T, Running, QUEUED> {
-    pub fn read(&self) -> u16 {
-        while !T::regs().isr().read().eoc() {}
-        T::regs().dr().read().rdata() as u16
+    pub fn read(&self) -> Option<u16> {
+        if !T::regs().isr().read().eoc() {
+            return None
+        }
+        Some(T::regs().dr().read().rdata() as u16)
     }
     
-    pub fn read_injected<const N: usize>(&self) -> [i16; N] {
+    pub fn read_injected<const N: usize>(&self) -> Option<[i16; N]> {
+        if !T::regs().isr().read().jeos() {
+            return None
+        }
+
+        T::regs().isr().write(|w| w.set_jeos(true));
+
+        let mut buf = [0i16; N];
+        for i in 0..N {
+            buf[i] = T::regs().jdr(i).read().jdata() as i16;
+        }
+        Some(buf)
+    }    
+
+    pub fn read_injected_blocking<const N: usize>(&self) -> [i16; N] {
         while !T::regs().isr().read().jeos() {}
-        T::regs().isr().modify(|w| w.set_jeos(true));
+
+        T::regs().isr().write(|w| w.set_jeos(true));
 
         let mut buf = [0i16; N];
         for i in 0..N {
