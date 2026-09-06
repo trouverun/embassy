@@ -51,6 +51,7 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
         };
         inner.set_frequency(effective_freq, RoundTo::Faster);
         inner.set_counting_mode(mode);
+        inner.set_repetition_counter(1u16);
         Self {
             _running: NotRunning,
             inner
