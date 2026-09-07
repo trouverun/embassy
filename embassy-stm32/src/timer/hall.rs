@@ -1,12 +1,15 @@
 use bit_field::BitField;
 use crate::gpio::{AfType, Pull};
 use crate::pac::gpio::Gpio;
+use crate::pac::timer::regs::SrGp16;
 use crate::pac::timer::vals;
 use crate::time::Hertz;
 use crate::timer::low_level::{FilterValue, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
 use crate::timer::{Ch1, Ch2, Ch3, Channel, GeneralInstance4Channel, TimerPin};
 use crate::Peri;
 
+/// Number of ticks in one full counter cycle (ARR = u16::MAX, so 0..=65535).
+const COUNTER_PERIOD: u32 = u16::MAX as u32 + 1;
 
 /// Hall sensor configuration.
 #[derive(Clone, Copy)]
@@ -52,9 +55,9 @@ pub struct HallSensor<'d, T: GeneralInstance4Channel> {
     pin_b: u8,
     pin_c: u8,
 
-    /// Count of consecutive update events (overflows) since a hal edge
+    /// Count of consecutive update events (overflows) since the last hall edge
     num_overflows: u16,
-    /// Hall period value reciprocal (1.0 / (overflows*u16::MAX + counter) at last hall edge
+    /// Hall period value reciprocal, 1.0 / (overflows*COUNTER_PERIOD + captured), at last hall edge
     hall_period_reciprocal_count: f32,
     /// 3 bit hall pattern from the most recent hall edge
     pattern: u8,
@@ -153,23 +156,23 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
         self.frequency_hz
     }
 
-    /// Call this from the timer peripherals interrupt handler
+    /// Services the update and input interrupts. Must not interleave with `read_state`.
     pub fn on_interrupt(&mut self) {
-        if self.inner.get_update_interrupt() {
+        let regs = self.inner.regs_gp16();
+        if regs.sr().read().uif() {
             self.on_update_interrupt();
         }
-        if self.inner.get_input_interrupt(Channel::Ch1) {
+        if regs.sr().read().ccif(0) {
             self.on_input_interrupt();
         }
     }
 
     /// This handler tracks consecutive overflows to account for them in the hall period
     fn on_update_interrupt(&mut self) {
-        let num_overflows = self.num_overflows;
-        if num_overflows < u16::MAX {
-            self.num_overflows += 1;
-        }
-        self.inner.clear_update_interrupt();
+        let mut sr = SrGp16(u32::MAX);
+        sr.set_uif(false);
+        self.inner.regs_gp16().sr().write_value(sr);
+        self.num_overflows = self.num_overflows.saturating_add(1);
     }
 
     /// Returns the current 3 bit hall pattern (for calibration use)
@@ -184,28 +187,48 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
     /// Compute the hall period on each XOR edge event
     fn on_input_interrupt(&mut self) {
         let regs = self.inner.regs_gp16();
-        let overflows = self.num_overflows;
-        let captured = regs.ccr(0).read().0 as u16;
 
-        let period: u32 = captured as u32 + (overflows as u32 * u16::MAX as u32);
-        let mut hall_period_reciprocal_count = 0.0;
-        if period > 0 {
-            hall_period_reciprocal_count = 1.0 / period as f32;
+        // Clear before reading CCR1 so an edge arriving during this handler re-triggers the interrupt
+        let mut sr = SrGp16(u32::MAX);
+        sr.set_ccif(0, false);
+        sr.set_ccof(0, false);
+        regs.sr().write_value(sr);
+        let captured = regs.ccr(0).read().0 as u16;
+        let pattern = self.read_hall_pattern();
+
+        // A pending overflow belongs to the ended period
+        let mut overflows = self.num_overflows;
+        if regs.sr().read().uif() {
+            let mut sr = SrGp16(u32::MAX);
+            sr.set_uif(false);
+            regs.sr().write_value(sr);
+            overflows = overflows.saturating_add(1);
         }
-        self.hall_period_reciprocal_count = hall_period_reciprocal_count;
+
+        let period: u32 = captured as u32 + (overflows as u32 * COUNTER_PERIOD);
+        self.hall_period_reciprocal_count = if period > 0 { 1.0 / period as f32 } else { 0.0 };
 
         self.prev_pattern = self.pattern;
-        self.pattern = self.read_hall_pattern();
-        self.inner.clear_input_interrupt(Channel::Ch1);
+        self.pattern = pattern;
         self.num_overflows = 0;
     }
 
-    /// Takes a snapshot of the current hall state
-    pub fn read_state(&self) -> HallState {
-        // Account for unserviced update ISR:
-        let overflows = self.num_overflows.saturating_add(self.inner.get_update_interrupt() as u16);
-        let counter = self.inner.regs_gp16().cnt().read().0 as u16;
-        let count = counter as u32 + (overflows as u32 * u16::MAX as u32);
+    /// Takes a snapshot of the current hall state. Must not interleave with `on_interrupt`.
+    pub fn read_state(&mut self) -> HallState {
+        let regs = self.inner.regs_gp16();
+        let mut counter;
+        let mut attempts = 0;
+        loop {
+            self.on_interrupt();
+            counter = regs.cnt().read().0 as u16;
+            let sr = regs.sr().read();
+            // Edge or overflow landed after servicing: counter is inconsistent with the state, retry
+            if !(sr.uif() || sr.ccif(0)) || attempts >= 2 {
+                break;
+            }
+            attempts += 1;
+        }
+        let count = counter as u32 + (self.num_overflows as u32 * COUNTER_PERIOD);
 
         HallState {
             hall_period_reciprocal_count: self.hall_period_reciprocal_count,

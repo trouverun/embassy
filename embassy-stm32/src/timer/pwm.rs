@@ -1,7 +1,6 @@
 use stm32_metapac::timer::vals::*;
 use crate::comp::{Comp, Instance as CompInstance};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::lptim::pwm::Pwm;
 use crate::time::Hertz;
 use crate::timer::low_level::{FilterValue, OutputCompareMode, RoundTo, Timer};
 use crate::timer::{AdvancedInstance4Channel, BreakInput, BreakInputPin, Ch1, Ch2, Ch3, Ch4, Channel, CountingMode, TimerComplementaryPin, TimerPin};
@@ -66,8 +65,8 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
         self.inner.enable_channel(channel, true);
     }
 
-    fn setup_complementary_channel(&self, channel: Channel) {
-        self.inner.set_oisn(channel, true);
+    fn setup_complementary_channel(&self, channel: Channel, oisn_val: bool) {
+        self.inner.set_oisn(channel, oisn_val);
         self.inner.enable_complementary_channel(channel, true);
     }
 
@@ -101,31 +100,31 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
     }
     
     /// Assigns the pin as PWM complementary channel 1
-    pub fn with_ch1n<P>(self, pin : Peri<'a, P>) -> Self where P : TimerComplementaryPin<T, Ch1> {
+    pub fn with_ch1n<P>(self, pin : Peri<'a, P>, oisn_val: bool) -> Self where P : TimerComplementaryPin<T, Ch1> {
         pin.set_low();
         set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        self.setup_complementary_channel(Channel::Ch1);
+        self.setup_complementary_channel(Channel::Ch1, oisn_val);
         self
     }
     /// Assigns the pin as PWM complementary channel 2
-    pub fn with_ch2n<P>(self, pin : Peri<'a, P>) -> Self where P : TimerComplementaryPin<T, Ch2> {
+    pub fn with_ch2n<P>(self, pin : Peri<'a, P>, oisn_val: bool) -> Self where P : TimerComplementaryPin<T, Ch2> {
         pin.set_low();
         set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        self.setup_complementary_channel(Channel::Ch2);
+        self.setup_complementary_channel(Channel::Ch2, oisn_val);
         self
     }
     /// Assigns the pin as PWM complementary channel 3
-    pub fn with_ch3n<P>(self, pin : Peri<'a, P>) -> Self where P : TimerComplementaryPin<T, Ch3> {
+    pub fn with_ch3n<P>(self, pin : Peri<'a, P>, oisn_val: bool) -> Self where P : TimerComplementaryPin<T, Ch3> {
         pin.set_low();
         set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        self.setup_complementary_channel(Channel::Ch3);
+        self.setup_complementary_channel(Channel::Ch3, oisn_val);
         self
     }
     /// Assigns the pin as PWM complementary channel 4
-    pub fn with_ch4n<P>(self, pin : Peri<'a, P>) -> Self where P : TimerComplementaryPin<T, Ch4> {
+    pub fn with_ch4n<P>(self, pin : Peri<'a, P>, oisn_val: bool) -> Self where P : TimerComplementaryPin<T, Ch4> {
         pin.set_low();
         set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        self.setup_complementary_channel(Channel::Ch4);
+        self.setup_complementary_channel(Channel::Ch4, oisn_val);
         self
     }
 
@@ -246,13 +245,6 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, Running> {
             return true
         }
         false
-    }
-
-    /// Restores the timer to normal operation from a break event (re-enable outputs)
-    pub fn clear_fault(&self) {
-        if !self.inner.regs_advanced().sr().read().bif(0) & !self.inner.regs_advanced().sr().read().bif(1) {
-            self.inner.enable_outputs();
-        }
     }
 
     /// MOE = 1
