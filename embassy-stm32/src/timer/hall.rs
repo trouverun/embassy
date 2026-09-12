@@ -157,6 +157,7 @@ impl<'d, T: GeneralInstance4Channel> HallSensor<'d, T> {
     }
 
     /// Services the update and input interrupts. Must not interleave with `read_state`.
+    #[inline(always)]
     pub fn on_interrupt(&mut self) {
         let regs = self.inner.regs_gp16();
         if regs.sr().read().uif() {
