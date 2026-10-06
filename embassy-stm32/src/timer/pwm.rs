@@ -166,7 +166,7 @@ impl<'a, T: AdvancedInstance4Channel> PWM<'a, T, NotRunning> {
     /// Assign a comparator as a break1 event source
     pub fn with_break1_comp<C: CompInstance>(self, comp: &Comp<'_, C>, output_polarity: Bkp, filter: FilterValue) -> Self {
         self.inner.regs_advanced().af1().modify(|w| {
-            w.set_bkcmpe(comp.number(), true);
+            w.set_bkcmpe(comp.number()-1, true);
         });
         self.inner.regs_advanced().bdtr().modify(|w| {
             w.set_bke(0, true);

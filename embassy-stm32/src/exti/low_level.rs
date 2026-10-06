@@ -97,6 +97,9 @@ macro_rules! cfg_no_rpr_fpr {
 }
 
 /// Clears any pending EXTI interrupt flag for a specific bit mask
+///
+/// The pending registers are write-1-to-clear, so this is a plain store that leaves
+/// other lines untouched and needs no critical section.
 pub(super) fn clear_exti_pending_mask(mask: u32) {
     cfg_no_rpr_fpr! {
         EXTI.pr(0).write_value(Lines(mask));
@@ -110,11 +113,7 @@ pub(super) fn clear_exti_pending_mask(mask: u32) {
 
 /// Clears the pending EXTI interrupt flag for a specific pin
 pub(super) fn clear_exti_pending(pin: PinNumber) {
-    let mask = 1u32 << pin;
-
-    critical_section::with(|_| {
-        clear_exti_pending_mask(mask);
-    });
+    clear_exti_pending_mask(1u32 << pin);
 }
 
 /// Checks if an EXTI interrupt is pending for a specific pin

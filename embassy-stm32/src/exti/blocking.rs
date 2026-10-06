@@ -57,6 +57,6 @@ impl ExtiGroupMask {
     /// This performs a single write to the EXTI pending register,
     /// making it suitable for use inside interrupt handlers.
     pub fn clear(&self) {
-        critical_section::with(|_| low_level::clear_exti_pending_mask(self.0))
+        low_level::clear_exti_pending_mask(self.0)
     }
 }
